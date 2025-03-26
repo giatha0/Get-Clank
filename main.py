@@ -9,7 +9,7 @@ from telegram import Bot, Update, ParseMode
 from telegram.ext import Dispatcher, CommandHandler, MessageHandler, Filters, CallbackContext
 from web3 import Web3
 
-# Thiết lập logger chi tiết
+# Thiết lập logger (tiếng Việt)
 logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
     level=logging.INFO
@@ -117,36 +117,37 @@ def handle_message(update: Update, context: CallbackContext):
             logger.warning("⚠️ Tin nhắn không phải là địa chỉ contract hợp lệ.")
             return
 
-        update.message.reply_text(f"Đang xử lý contract: `{message_text}`", parse_mode=ParseMode.MARKDOWN)
+        # Phản hồi cho người dùng bằng tiếng Anh
+        update.message.reply_text(f"Processing contract: `{message_text}`", parse_mode=ParseMode.MARKDOWN)
         txhash = get_creation_txhash(message_text)
         if not txhash:
-            update.message.reply_text("❌ Không tìm thấy txhash từ BaseScan.")
+            update.message.reply_text("Could not find txhash from BaseScan.")
             return
 
         tx_data = get_transaction_data(txhash)
         if not tx_data:
-            update.message.reply_text("❌ Không lấy được thông tin giao dịch từ BaseScan.")
+            update.message.reply_text("Failed to retrieve transaction data from BaseScan.")
             return
 
         input_data_raw = tx_data.get("input", "")
         if not input_data_raw:
-            update.message.reply_text("❌ Không có input data trong giao dịch.")
+            update.message.reply_text("No input data found in the transaction.")
             return
 
         logger.info(f"🔍 Input data raw (first 20 chars): {input_data_raw[:20]}... (length: {len(input_data_raw)})")
 
         decoded = decode_input_with_web3(input_data_raw)
         if not decoded:
-            update.message.reply_text("❌ Lỗi khi decode input data.")
+            update.message.reply_text("Error decoding input data.")
             return
 
         if decoded.get("function") != "deployToken":
-            update.message.reply_text(f"⚠️ Giao dịch không phải deployToken (function: {decoded.get('function')}).")
+            update.message.reply_text(f"This is not a deployToken transaction (function: {decoded.get('function')}).")
             return
 
         deployment_config = decoded.get("args", {}).get("deploymentConfig")
         if not deployment_config:
-            update.message.reply_text("❌ Không tìm thấy deploymentConfig trong input data.")
+            update.message.reply_text("deploymentConfig not found in the input data.")
             return
 
         token_config = deployment_config.get("tokenConfig", {})
@@ -158,12 +159,12 @@ def handle_message(update: Update, context: CallbackContext):
         chain_id = token_config.get("originatingChainId")
         creator_reward_recipient = rewards_config.get("creatorRewardRecipient")
 
-        # Xử lý context: hiển thị từng item riêng dòng, chỉ hiển thị các mục có giá trị khác rỗng.
+        # Xử lý context: tách từng item ra một dòng, hiển thị các mục không rỗng.
         context_raw = token_config.get("context")
         try:
             context_json = json.loads(context_raw)
         except Exception as e:
-            logger.warning(f"⚠️ Không parse được context JSON: {e}")
+            logger.warning(f"⚠️ Failed to parse context JSON: {e}")
             context_json = {"context": context_raw}
 
         context_lines = []
@@ -171,7 +172,7 @@ def handle_message(update: Update, context: CallbackContext):
             for key, value in context_json.items():
                 if value and str(value).strip():
                     if key == "messageId":
-                        # Nếu messageId không rỗng, hiển thị dưới dạng hyperlink nếu có URL
+                        # Nếu messageId không rỗng và có URL thì hiển thị dưới dạng hyperlink
                         context_lines.append(f"{key}: [Link]({value})")
                     else:
                         context_lines.append(f"{key}: {value}")
@@ -180,24 +181,24 @@ def handle_message(update: Update, context: CallbackContext):
         context_formatted = "\n".join(context_lines)
 
         reply = (
-            f"📌 *Thông tin token deploy:*\n\n"
-            f"*Tên:* `{name}`\n"
-            f"*Ký hiệu:* `{symbol}`\n"
+            f"*Token Deployment Information:*\n\n"
+            f"*Name:* `{name}`\n"
+            f"*Symbol:* `{symbol}`\n"
             f"*Chain ID:* `{chain_id}`\n"
             f"*Image:* [Link]({image})\n\n"
             f"*Context:*\n{context_formatted}\n\n"
-            f"*creatorRewardRecipient:* `{creator_reward_recipient}` (click copy)"
+            f"*Creator Reward Recipient:* `{creator_reward_recipient}`"
         )
 
         update.message.reply_text(reply, parse_mode=ParseMode.MARKDOWN)
-        logger.info("✅ Bot đã trả lời xong.")
+        logger.info("✅ Bot has responded successfully.")
     except Exception as e:
-        logger.exception(f"❌ Lỗi không xác định trong handle_message: {e}")
+        logger.exception(f"❌ Unhandled error in handle_message: {e}")
 
 def start_command(update: Update, context: CallbackContext):
-    update.message.reply_text("Bot đã sẵn sàng. Gửi địa chỉ token contract để xử lý.")
+    update.message.reply_text("Bot is ready. Please send a token contract address to process.")
 
-# Thêm handler vào Dispatcher (không dùng decorator)
+# Thêm handler vào Dispatcher
 dp.add_handler(CommandHandler("start", start_command))
 dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_message))
 
@@ -205,17 +206,17 @@ dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_message))
 def telegram_webhook():
     try:
         data = request.get_json(force=True)
-        logger.info(f"📨 Nhận update từ Telegram: {data}")
+        logger.info(f"📨 Received update from Telegram: {data}")
         update_obj = Update.de_json(data, bot)
         dp.process_update(update_obj)
         return jsonify({"ok": True})
     except Exception as e:
-        logger.exception(f"❌ Lỗi xử lý webhook: {e}")
+        logger.exception(f"❌ Error processing webhook: {e}")
         return jsonify({"ok": False}), 500
 
 @app.route("/", methods=["GET"])
 def index():
-    return "🤖 Clanker Bot đang hoạt động (Flask webhook)."
+    return "🤖 Clanker Bot is running (Flask webhook)."
 
 def main():
     # Xóa webhook cũ
@@ -223,12 +224,12 @@ def main():
     # Thiết lập webhook mới với domain công khai
     hook_url = f"{WEBHOOK_URL}/{TELEGRAM_BOT_TOKEN}"
     if not bot.set_webhook(url=hook_url):
-        logger.error("❌ Không thể thiết lập webhook với Telegram.")
+        logger.error("❌ Failed to set webhook with Telegram.")
         exit(1)
-    logger.info(f"✅ Webhook đã được thiết lập: {hook_url}")
+    logger.info(f"✅ Webhook has been set: {hook_url}")
 
     port = int(os.environ.get("PORT", 80))
-    logger.info(f"🚀 Chạy Flask server trên cổng {port}...")
+    logger.info(f"🚀 Starting Flask server on port {port}...")
     app.run(host="0.0.0.0", port=port)
 
 if __name__ == "__main__":
