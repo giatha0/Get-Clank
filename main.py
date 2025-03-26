@@ -179,7 +179,7 @@ def main() -> None:
     updater.bot.delete_webhook(drop_pending_updates=True)
 
     # Cấu hình webhook với port 8443 (được Telegram cho phép)
-    port = 8443  # Sử dụng cổng 8443
+    port = 80  # Sử dụng cổng 8443
     updater.start_webhook(
         listen="0.0.0.0",
         port=port,
