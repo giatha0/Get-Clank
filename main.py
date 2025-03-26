@@ -190,7 +190,7 @@ def handle_message(update: Update, context: CallbackContext):
         logger.exception(f"❌ Lỗi không xác định trong handle_message: {e}")
 
 @dp.add_handler(CommandHandler("start", lambda update, context: update.message.reply_text("Bot đã sẵn sàng. Gửi địa chỉ token contract để xử lý.")))
-@dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_message))
+dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_message))
 
 @app.route(f"/{TELEGRAM_BOT_TOKEN}", methods=["POST"])
 def telegram_webhook():
