@@ -13,14 +13,19 @@ logger = logging.getLogger(__name__)
 # Lấy biến môi trường
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 API_BASESCAN = os.environ.get("API_BASESCAN")  # Ví dụ: https://api.basescan.io
+BASESCAN_API_KEY = os.environ.get("BASESCAN_API_KEY")
 
 def get_creation_txhash(contract_address: str) -> str:
     """
-    Gọi API của BaseScan để lấy txhash của giao dịch tạo token.
+    Gọi API của BaseScan để lấy txhash của giao dịch tạo token, truyền thêm apikey.
     """
     try:
-        url = f"{API_BASESCAN}/api/txhash?contract={contract_address}"
-        response = requests.get(url, timeout=10)
+        url = f"{API_BASESCAN}/api/txhash"
+        params = {
+            "contract": contract_address,
+            "apikey": BASESCAN_API_KEY
+        }
+        response = requests.get(url, params=params, timeout=10)
         response.raise_for_status()
         data = response.json()
         txhash = data.get("txhash")
@@ -33,11 +38,15 @@ def get_creation_txhash(contract_address: str) -> str:
 
 def get_input_data(txhash: str) -> dict:
     """
-    Gọi API của BaseScan để lấy input data từ txhash.
+    Gọi API của BaseScan để lấy input data từ txhash, truyền thêm apikey.
     """
     try:
-        url = f"{API_BASESCAN}/api/input?txhash={txhash}"
-        response = requests.get(url, timeout=10)
+        url = f"{API_BASESCAN}/api/input"
+        params = {
+            "txhash": txhash,
+            "apikey": BASESCAN_API_KEY
+        }
+        response = requests.get(url, params=params, timeout=10)
         response.raise_for_status()
         data = response.json()
         return data  # Giả sử data trả về là JSON với cấu trúc tokenconfig
@@ -68,7 +77,6 @@ def handle_message(update: Update, context: CallbackContext) -> None:
 
     try:
         # Giả sử input_data có cấu trúc giống như tokenconfig được mô tả
-        # main_tuple chứa các tuple theo thứ tự
         params = input_data.get("params", [])
         if not params or not isinstance(params[0], list):
             update.message.reply_text("Dữ liệu input không đúng định dạng.")
@@ -109,6 +117,9 @@ def main() -> None:
         return
     if not API_BASESCAN:
         logger.error("Chưa thiết lập API_BASESCAN trong biến môi trường.")
+        return
+    if not BASESCAN_API_KEY:
+        logger.error("Chưa thiết lập BASESCAN_API_KEY trong biến môi trường.")
         return
 
     updater = Updater(TELEGRAM_BOT_TOKEN, use_context=True)
