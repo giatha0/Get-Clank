@@ -117,8 +117,8 @@ def handle_message(update: Update, context: CallbackContext):
             logger.warning("⚠️ Tin nhắn không phải là địa chỉ contract hợp lệ.")
             return
 
-        # Phản hồi cho người dùng bằng tiếng Anh
         update.message.reply_text(f"Processing contract: `{message_text}`", parse_mode=ParseMode.MARKDOWN)
+        
         txhash = get_creation_txhash(message_text)
         if not txhash:
             update.message.reply_text("Could not find txhash from BaseScan.")
@@ -129,6 +129,12 @@ def handle_message(update: Update, context: CallbackContext):
             update.message.reply_text("Failed to retrieve transaction data from BaseScan.")
             return
 
+        # Lấy address "from" từ tx_data
+        from_address = tx_data.get("from")
+        if not from_address:
+            update.message.reply_text("Failed to retrieve 'from' address.")
+            return
+        
         input_data_raw = tx_data.get("input", "")
         if not input_data_raw:
             update.message.reply_text("No input data found in the transaction.")
@@ -159,7 +165,7 @@ def handle_message(update: Update, context: CallbackContext):
         chain_id = token_config.get("originatingChainId")
         creator_reward_recipient = rewards_config.get("creatorRewardRecipient")
 
-        # Xử lý context: tách từng item ra một dòng, hiển thị các mục không rỗng.
+        # Parse context, etc. (phần này giữ nguyên, ví dụ cũ)
         context_raw = token_config.get("context")
         try:
             context_json = json.loads(context_raw)
@@ -172,7 +178,6 @@ def handle_message(update: Update, context: CallbackContext):
             for key, value in context_json.items():
                 if value and str(value).strip():
                     if key == "messageId":
-                        # Nếu messageId không rỗng và có URL thì hiển thị dưới dạng hyperlink
                         context_lines.append(f"{key}: [Link]({value})")
                     else:
                         context_lines.append(f"{key}: {value}")
@@ -180,8 +185,10 @@ def handle_message(update: Update, context: CallbackContext):
             context_lines.append(str(context_json))
         context_formatted = "\n".join(context_lines)
 
+        # Thêm dòng hiển thị from_address
         reply = (
             f"*Token Deployment Information:*\n\n"
+            f"*From:* `{from_address}`\n"
             f"*Name:* `{name}`\n"
             f"*Symbol:* `{symbol}`\n"
             f"*Chain ID:* `{chain_id}`\n"
