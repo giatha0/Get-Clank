@@ -178,13 +178,14 @@ def main() -> None:
     # Xóa webhook nếu còn tồn tại (để tránh xung đột)
     updater.bot.delete_webhook(drop_pending_updates=True)
 
-    # Cấu hình webhook
-    port = 8443  # Port được Railway cung cấp
-    # Lắng nghe trên tất cả các interface (0.0.0.0) trên port 8080
-    updater.start_webhook(listen="0.0.0.0",
-                          port=port,
-                          url_path=TELEGRAM_BOT_TOKEN)
-    # Thiết lập webhook với Telegram: ví dụ "https://get-clank-production.up.railway.app/<bot_token>"
+    # Cấu hình webhook với port 8443 (được Telegram cho phép)
+    port = 8443  # Sử dụng cổng 8443
+    updater.start_webhook(
+        listen="0.0.0.0",
+        port=port,
+        url_path=TELEGRAM_BOT_TOKEN
+    )
+    # Thiết lập webhook với Telegram
     webhook_url = f"{WEBHOOK_URL}/{TELEGRAM_BOT_TOKEN}"
     updater.bot.set_webhook(url=webhook_url)
     logger.info("Webhook đã được thiết lập tại: %s", webhook_url)
