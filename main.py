@@ -7,16 +7,19 @@ from telegram import Update, ParseMode
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext
 
 # Thiết lập logging
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
-)
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+                    level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Lấy biến môi trường
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
-API_BASESCAN = os.environ.get("API_BASESCAN")  # ví dụ: "https://api.basescan.org"
+API_BASESCAN = os.environ.get("API_BASESCAN")  # Ví dụ: "https://api.basescan.org"
 BASESCAN_API_KEY = os.environ.get("BASESCAN_API_KEY")
+WEBHOOK_URL = os.environ.get("WEBHOOK_URL")  # Ví dụ: "https://get-clank-production.up.railway.app"
+
+if not TELEGRAM_BOT_TOKEN or not API_BASESCAN or not BASESCAN_API_KEY or not WEBHOOK_URL:
+    logger.error("Chưa thiết lập đầy đủ biến môi trường cần thiết.")
+    exit(1)
 
 def get_creation_txhash(contract_address: str) -> str:
     """
@@ -69,7 +72,7 @@ def get_transaction_data(txhash: str) -> dict:
 
 def decode_input(hex_str: str) -> str:
     """
-    Giải mã dữ liệu input dạng hex thành chuỗi UTF-8 (nếu không phải JSON thuần).
+    Giải mã dữ liệu input dạng hex thành chuỗi UTF-8.
     Dùng errors='replace' để tránh lỗi decode khi gặp byte không hợp lệ.
     """
     try:
@@ -83,36 +86,40 @@ def decode_input(hex_str: str) -> str:
 
 def handle_message(update: Update, context: CallbackContext) -> None:
     """
-    Hàm xử lý khi bot nhận được tin nhắn văn bản (là contract address).
+    Xử lý tin nhắn nhận được từ Telegram:
+    - Nhận contract address, 
+    - Lấy txhash từ BaseScan,
+    - Lấy thông tin giao dịch và input data,
+    - Giải mã và parse JSON input data,
+    - Trích xuất metadata, context và creatorRewardRecipient.
     """
     message_text = update.message.text.strip()
-    # Kiểm tra định dạng contract address
     if not re.match(r'^0x[a-fA-F0-9]{40}$', message_text):
-        return  # Bỏ qua nếu không phải là contract address hợp lệ
+        return  # Nếu không phải contract address hợp lệ, bỏ qua.
 
     contract_address = message_text
     update.message.reply_text(f"Đang xử lý contract: `{contract_address}`", parse_mode=ParseMode.MARKDOWN)
     
-    # 1. Lấy txhash giao dịch tạo contract
+    # Lấy txhash của giao dịch tạo contract
     txhash = get_creation_txhash(contract_address)
     if not txhash:
         update.message.reply_text("Không tìm thấy txhash từ BaseScan.")
         return
 
-    # 2. Lấy thông tin giao dịch
+    # Lấy thông tin giao dịch từ txhash
     tx_data = get_transaction_data(txhash)
     if not tx_data:
         update.message.reply_text("Không lấy được thông tin giao dịch từ BaseScan.")
         return
 
-    # 3. Lấy input data
+    # Lấy input data từ giao dịch
     input_data_raw = tx_data.get("input", "")
     if not input_data_raw:
         update.message.reply_text("Không tìm thấy input data trong giao dịch.")
         return
 
-    # 4. Nếu input data không phải JSON (bắt đầu bằng '{'), giải mã từ hex
     try:
+        # Nếu input data bắt đầu bằng '{', coi như đã là JSON, ngược lại giải mã từ hex.
         if input_data_raw.strip().startswith("{"):
             input_str = input_data_raw.strip()
         else:
@@ -120,15 +127,12 @@ def handle_message(update: Update, context: CallbackContext) -> None:
             if not input_str:
                 update.message.reply_text("Không thể giải mã input data từ giao dịch.")
                 return
-
-        # 5. Parse JSON
         input_data = json.loads(input_str)
     except Exception as e:
         logger.error("Lỗi khi parse input data: %s", e)
         update.message.reply_text("Lỗi khi parse input data từ giao dịch.")
         return
 
-    # 6. Lấy các trường cần thiết từ JSON
     try:
         params = input_data.get("params", [])
         if not params or not isinstance(params[0], list):
@@ -137,19 +141,15 @@ def handle_message(update: Update, context: CallbackContext) -> None:
 
         main_tuple = params[0]
         token_config = main_tuple[0]
-
         metadata_url = token_config[3]
         metadata_json = token_config[4]
         context_json = token_config[5]
-
         metadata = json.loads(metadata_json)
         context_data = json.loads(context_json)
         context_id = context_data.get("id", "N/A")
-
         rewards_config = main_tuple[4]
         creator_reward_recipient = rewards_config[1]
 
-        # 7. Gửi phản hồi
         reply_text = (
             f"*Thông tin triển khai hợp đồng:*\n\n"
             f"*Metadata URL:* [Link]({metadata_url})\n"
@@ -164,20 +164,10 @@ def handle_message(update: Update, context: CallbackContext) -> None:
         update.message.reply_text("Đã xảy ra lỗi khi xử lý dữ liệu từ input.")
 
 def start(update: Update, context: CallbackContext) -> None:
-    """
-    Lệnh /start - chào mừng và hướng dẫn.
-    """
+    """Xử lý lệnh /start"""
     update.message.reply_text("Bot đã sẵn sàng. Gửi địa chỉ token contract để xử lý.")
 
 def main() -> None:
-    """
-    Hàm main - khởi chạy bot ở chế độ polling.
-    """
-    if not TELEGRAM_BOT_TOKEN or not API_BASESCAN or not BASESCAN_API_KEY:
-        logger.error("Chưa thiết lập đầy đủ biến môi trường.")
-        return
-
-    # Khởi tạo Updater
     updater = Updater(TELEGRAM_BOT_TOKEN, use_context=True)
     dp = updater.dispatcher
 
@@ -185,12 +175,20 @@ def main() -> None:
     dp.add_handler(CommandHandler("start", start))
     dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_message))
 
-    # Xoá webhook (nếu có) để tránh conflict
+    # Xóa webhook nếu còn tồn tại (để tránh xung đột)
     updater.bot.delete_webhook(drop_pending_updates=True)
 
-    # Bắt đầu chạy polling
-    updater.start_polling()
-    logger.info("Bot đang chạy ở chế độ polling...")
+    # Cấu hình webhook
+    port = 8080  # Port được Railway cung cấp
+    # Lắng nghe trên tất cả các interface (0.0.0.0) trên port 8080
+    updater.start_webhook(listen="0.0.0.0",
+                          port=port,
+                          url_path=TELEGRAM_BOT_TOKEN)
+    # Thiết lập webhook với Telegram: ví dụ "https://get-clank-production.up.railway.app/<bot_token>"
+    webhook_url = f"{WEBHOOK_URL}/{TELEGRAM_BOT_TOKEN}"
+    updater.bot.set_webhook(url=webhook_url)
+    logger.info("Webhook đã được thiết lập tại: %s", webhook_url)
+
     updater.idle()
 
 if __name__ == '__main__':
