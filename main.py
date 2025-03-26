@@ -19,8 +19,6 @@ def get_creation_txhash(contract_address: str) -> str:
     """
     Gọi API của BaseScan để lấy giao dịch tạo contract.
     Sử dụng endpoint: module=contract, action=getcontractcreation, contractaddresses=<address>
-    Ví dụ:
-    https://api.basescan.org/api?module=contract&action=getcontractcreation&contractaddresses=<address>&apikey=...
     """
     try:
         url = f"{API_BASESCAN}/api"
@@ -33,7 +31,6 @@ def get_creation_txhash(contract_address: str) -> str:
         response = requests.get(url, params=params, timeout=10)
         response.raise_for_status()
         data = response.json()
-        # Kết quả trả về giả định có cấu trúc: { "status": "1", "result": [ { "txHash": "..." } ] }
         results = data.get("result", [])
         if not results or not isinstance(results, list):
             logger.error("Không có kết quả trả về cho contract: %s", contract_address)
@@ -50,8 +47,6 @@ def get_transaction_data(txhash: str) -> dict:
     """
     Gọi API của BaseScan để lấy thông tin giao dịch theo txhash,
     sử dụng endpoint eth_getTransactionByHash.
-    Ví dụ:
-    https://api.basescan.org/api?module=proxy&action=eth_getTransactionByHash&txhash=<txhash>&apikey=...
     """
     try:
         url = f"{API_BASESCAN}/api"
@@ -72,13 +67,14 @@ def get_transaction_data(txhash: str) -> dict:
 def decode_input(hex_str: str) -> str:
     """
     Nếu input data không phải là JSON rõ ràng (không bắt đầu bằng '{'), 
-    thì tiến hành giải mã từ chuỗi hex sang utf-8.
+    tiến hành giải mã từ chuỗi hex sang utf-8.
+    Sử dụng errors='replace' để tránh lỗi decode.
     """
     try:
         if hex_str.startswith("0x"):
             hex_str = hex_str[2:]
         bytes_data = bytes.fromhex(hex_str)
-        return bytes_data.decode('utf-8').strip()
+        return bytes_data.decode('utf-8', errors='replace').strip()
     except Exception as e:
         logger.error("Lỗi khi giải mã input data: %s", e)
         return None
@@ -92,13 +88,11 @@ def handle_message(update: Update, context: CallbackContext) -> None:
     contract_address = message_text
     update.message.reply_text(f"Đang xử lý contract: `{contract_address}`", parse_mode=ParseMode.MARKDOWN)
     
-    # Lấy txhash của giao dịch tạo token từ contract address
     txhash = get_creation_txhash(contract_address)
     if not txhash:
         update.message.reply_text("Không tìm thấy txhash từ BaseScan.")
         return
 
-    # Lấy thông tin giao dịch (bao gồm input data) từ txhash
     tx_data = get_transaction_data(txhash)
     if not tx_data:
         update.message.reply_text("Không lấy được thông tin giao dịch từ BaseScan.")
@@ -109,8 +103,8 @@ def handle_message(update: Update, context: CallbackContext) -> None:
         update.message.reply_text("Không tìm thấy input data trong giao dịch.")
         return
 
-    # Kiểm tra nếu input data bắt đầu bằng '{', coi như đã là JSON, ngược lại giải mã từ hex
     try:
+        # Nếu input data bắt đầu bằng '{', coi như đã là JSON, ngược lại giải mã từ hex
         if input_data_raw.strip().startswith("{"):
             input_str = input_data_raw.strip()
         else:
@@ -118,7 +112,6 @@ def handle_message(update: Update, context: CallbackContext) -> None:
             if not input_str:
                 update.message.reply_text("Không thể giải mã input data từ giao dịch.")
                 return
-
         input_data = json.loads(input_str)
     except Exception as e:
         logger.error("Lỗi khi parse input data: %s", e)
