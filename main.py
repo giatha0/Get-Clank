@@ -133,7 +133,7 @@ def handle_message(update: Update, context: CallbackContext):
             update.message.reply_text("❌ Không có input data trong giao dịch.")
             return
 
-        logger.info(f"🔍 Input data raw (first 20 chars): {input_data_raw[:20]} ... (length: {len(input_data_raw)})")
+        logger.info(f"🔍 Input data raw (first 20 chars): {input_data_raw[:20]}... (length: {len(input_data_raw)})")
 
         decoded = decode_input_with_web3(input_data_raw)
         if not decoded:
@@ -189,7 +189,11 @@ def handle_message(update: Update, context: CallbackContext):
     except Exception as e:
         logger.exception(f"❌ Lỗi không xác định trong handle_message: {e}")
 
-@dp.add_handler(CommandHandler("start", lambda update, context: update.message.reply_text("Bot đã sẵn sàng. Gửi địa chỉ token contract để xử lý.")))
+def start_command(update: Update, context: CallbackContext):
+    update.message.reply_text("Bot đã sẵn sàng. Gửi địa chỉ token contract để xử lý.")
+
+# Thêm handler vào dispatcher (không sử dụng decorator)
+dp.add_handler(CommandHandler("start", start_command))
 dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_message))
 
 @app.route(f"/{TELEGRAM_BOT_TOKEN}", methods=["POST"])
@@ -211,14 +215,14 @@ def index():
 def main():
     # Xóa webhook cũ
     bot.delete_webhook(drop_pending_updates=True)
-    # Thiết lập webhook mới
+
+    # Thiết lập webhook mới với domain công khai
     hook_url = f"{WEBHOOK_URL}/{TELEGRAM_BOT_TOKEN}"
     if not bot.set_webhook(url=hook_url):
         logger.error("❌ Không thể thiết lập webhook với Telegram.")
         exit(1)
     logger.info(f"✅ Webhook đã được thiết lập: {hook_url}")
 
-    # Lấy port từ biến môi trường (Railway sẽ cung cấp PORT)
     port = int(os.environ.get("PORT", 80))
     logger.info(f"🚀 Chạy Flask server trên cổng {port}...")
     app.run(host="0.0.0.0", port=port)
