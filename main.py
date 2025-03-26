@@ -3,29 +3,32 @@ import re
 import json
 import logging
 import requests
-from telegram import Update, ParseMode
-from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext
 
-# Thiết lập logging
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-                    level=logging.INFO)
+from flask import Flask, request, jsonify
+from telegram import Bot, Update, ParseMode
+from telegram.ext import Dispatcher, CommandHandler, MessageHandler, Filters, CallbackContext
+
+# Cấu hình logging
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
 logger = logging.getLogger(__name__)
 
 # Lấy biến môi trường
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
-API_BASESCAN = os.environ.get("API_BASESCAN")  # Ví dụ: "https://api.basescan.org"
+API_BASESCAN = os.environ.get("API_BASESCAN")
 BASESCAN_API_KEY = os.environ.get("BASESCAN_API_KEY")
-WEBHOOK_URL = os.environ.get("WEBHOOK_URL")  # Ví dụ: "https://get-clank-production.up.railway.app"
+WEBHOOK_URL = os.environ.get("WEBHOOK_URL")  # Domain công khai của bạn, ví dụ: https://get-clank-production.up.railway.app
 
-if not TELEGRAM_BOT_TOKEN or not API_BASESCAN or not BASESCAN_API_KEY or not WEBHOOK_URL:
-    logger.error("Chưa thiết lập đầy đủ biến môi trường cần thiết.")
-    exit(1)
+# Tạo bot và dispatcher
+bot = Bot(token=TELEGRAM_BOT_TOKEN)
+dp = Dispatcher(bot, None, use_context=True)
+
+# Tạo Flask app
+app = Flask(__name__)
 
 def get_creation_txhash(contract_address: str) -> str:
-    """
-    Gọi API của BaseScan để lấy giao dịch tạo contract.
-    Endpoint: ?module=contract&action=getcontractcreation&contractaddresses=<address>&apikey=...
-    """
     try:
         url = f"{API_BASESCAN}/api"
         params = {
@@ -34,26 +37,19 @@ def get_creation_txhash(contract_address: str) -> str:
             "contractaddresses": contract_address,
             "apikey": BASESCAN_API_KEY
         }
-        response = requests.get(url, params=params, timeout=10)
-        response.raise_for_status()
-        data = response.json()
+        resp = requests.get(url, params=params, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
         results = data.get("result", [])
         if not results or not isinstance(results, list):
-            logger.error("Không có kết quả trả về cho contract: %s", contract_address)
             return None
         txhash = results[0].get("txHash")
-        if not txhash:
-            logger.error("Không tìm thấy txHash trong kết quả trả về cho contract: %s", contract_address)
         return txhash
     except Exception as e:
         logger.error("Lỗi khi lấy txhash: %s", e)
         return None
 
 def get_transaction_data(txhash: str) -> dict:
-    """
-    Gọi API của BaseScan để lấy thông tin giao dịch theo txhash.
-    Endpoint: ?module=proxy&action=eth_getTransactionByHash&txhash=<txhash>&apikey=...
-    """
     try:
         url = f"{API_BASESCAN}/api"
         params = {
@@ -62,19 +58,15 @@ def get_transaction_data(txhash: str) -> dict:
             "txhash": txhash,
             "apikey": BASESCAN_API_KEY
         }
-        response = requests.get(url, params=params, timeout=10)
-        response.raise_for_status()
-        data = response.json()
+        resp = requests.get(url, params=params, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
         return data.get("result", {})
     except Exception as e:
         logger.error("Lỗi khi lấy thông tin giao dịch: %s", e)
-        return None
+        return {}
 
 def decode_input(hex_str: str) -> str:
-    """
-    Giải mã dữ liệu input dạng hex thành chuỗi UTF-8.
-    Dùng errors='replace' để tránh lỗi decode khi gặp byte không hợp lệ.
-    """
     try:
         if hex_str.startswith("0x"):
             hex_str = hex_str[2:]
@@ -82,51 +74,44 @@ def decode_input(hex_str: str) -> str:
         return bytes_data.decode('utf-8', errors='replace').strip()
     except Exception as e:
         logger.error("Lỗi khi giải mã input data: %s", e)
-        return None
+        return ""
+
+def start(update: Update, context: CallbackContext) -> None:
+    update.message.reply_text("Bot đã sẵn sàng. Gửi địa chỉ token contract để xử lý.")
 
 def handle_message(update: Update, context: CallbackContext) -> None:
-    """
-    Xử lý tin nhắn nhận được từ Telegram:
-    - Nhận contract address, 
-    - Lấy txhash từ BaseScan,
-    - Lấy thông tin giao dịch và input data,
-    - Giải mã và parse JSON input data,
-    - Trích xuất metadata, context và creatorRewardRecipient.
-    """
     message_text = update.message.text.strip()
     if not re.match(r'^0x[a-fA-F0-9]{40}$', message_text):
-        return  # Nếu không phải contract address hợp lệ, bỏ qua.
+        return
 
     contract_address = message_text
     update.message.reply_text(f"Đang xử lý contract: `{contract_address}`", parse_mode=ParseMode.MARKDOWN)
-    
-    # Lấy txhash của giao dịch tạo contract
+
     txhash = get_creation_txhash(contract_address)
     if not txhash:
         update.message.reply_text("Không tìm thấy txhash từ BaseScan.")
         return
 
-    # Lấy thông tin giao dịch từ txhash
     tx_data = get_transaction_data(txhash)
     if not tx_data:
         update.message.reply_text("Không lấy được thông tin giao dịch từ BaseScan.")
         return
 
-    # Lấy input data từ giao dịch
     input_data_raw = tx_data.get("input", "")
     if not input_data_raw:
         update.message.reply_text("Không tìm thấy input data trong giao dịch.")
         return
 
+    # Nếu chuỗi bắt đầu bằng { thì coi như JSON, nếu không thì decode
+    if input_data_raw.strip().startswith("{"):
+        input_str = input_data_raw.strip()
+    else:
+        input_str = decode_input(input_data_raw)
+    if not input_str:
+        update.message.reply_text("Không thể giải mã input data từ giao dịch.")
+        return
+
     try:
-        # Nếu input data bắt đầu bằng '{', coi như đã là JSON, ngược lại giải mã từ hex.
-        if input_data_raw.strip().startswith("{"):
-            input_str = input_data_raw.strip()
-        else:
-            input_str = decode_input(input_data_raw)
-            if not input_str:
-                update.message.reply_text("Không thể giải mã input data từ giao dịch.")
-                return
         input_data = json.loads(input_str)
     except Exception as e:
         logger.error("Lỗi khi parse input data: %s", e)
@@ -163,34 +148,46 @@ def handle_message(update: Update, context: CallbackContext) -> None:
         logger.error("Lỗi khi xử lý input data: %s", e)
         update.message.reply_text("Đã xảy ra lỗi khi xử lý dữ liệu từ input.")
 
-def start(update: Update, context: CallbackContext) -> None:
-    """Xử lý lệnh /start"""
-    update.message.reply_text("Bot đã sẵn sàng. Gửi địa chỉ token contract để xử lý.")
+# Thêm handler vào dispatcher
+dp.add_handler(CommandHandler("start", start))
+dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_message))
 
-def main() -> None:
-    updater = Updater(TELEGRAM_BOT_TOKEN, use_context=True)
-    dp = updater.dispatcher
+@app.route(f"/{TELEGRAM_BOT_TOKEN}", methods=["POST"])
+def telegram_webhook():
+    """
+    Endpoint cho Telegram gửi update (webhook).
+    """
+    try:
+        data = request.get_json(force=True)
+    except Exception:
+        return jsonify({"ok": False}), 400
 
-    # Đăng ký các handler
-    dp.add_handler(CommandHandler("start", start))
-    dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_message))
+    update = Update.de_json(data, bot)
+    dp.process_update(update)
+    return jsonify({"ok": True}), 200
 
-    # Xóa webhook nếu còn tồn tại (để tránh xung đột)
-    updater.bot.delete_webhook(drop_pending_updates=True)
+@app.route("/", methods=["GET"])
+def index():
+    return "Bot is running (Flask webhook)."
 
-    # Cấu hình webhook với port 8443 (được Telegram cho phép)
-    port = 80  # Sử dụng cổng 8443
-    updater.start_webhook(
-        listen="0.0.0.0",
-        port=port,
-        url_path=TELEGRAM_BOT_TOKEN
-    )
-    # Thiết lập webhook với Telegram
-    webhook_url = f"{WEBHOOK_URL}/{TELEGRAM_BOT_TOKEN}"
-    updater.bot.set_webhook(url=webhook_url)
-    logger.info("Webhook đã được thiết lập tại: %s", webhook_url)
+def main():
+    if not TELEGRAM_BOT_TOKEN or not API_BASESCAN or not BASESCAN_API_KEY or not WEBHOOK_URL:
+        logger.error("Chưa thiết lập đầy đủ biến môi trường.")
+        return
 
-    updater.idle()
+    # 1. Xoá webhook cũ
+    bot.delete_webhook(drop_pending_updates=True)
 
-if __name__ == '__main__':
+    # 2. Thiết lập webhook với domain công khai
+    set_hook = bot.set_webhook(url=f"{WEBHOOK_URL}/{TELEGRAM_BOT_TOKEN}")
+    if not set_hook:
+        logger.error("Không thể thiết lập webhook với Telegram.")
+        return
+    logger.info("Webhook đã được thiết lập: %s/%s", WEBHOOK_URL, TELEGRAM_BOT_TOKEN)
+
+    # 3. Chạy Flask trên cổng 80 (hoặc 443), Railway sẽ map domain -> cổng
+    port = int(os.environ.get("PORT", 80))
+    app.run(host="0.0.0.0", port=port)
+
+if __name__ == "__main__":
     main()
