@@ -40,11 +40,9 @@ except Exception as e:
 
 app = Flask(__name__)
 
-# Định nghĩa dictionary địa chỉ → nhãn
 ADDRESS_LABELS = {
-    "0x2112b8456AC07c15fA31ddf3Bf713E77716fF3F9".lower(): "bnkr deployer",
-    "0xd9aCd656A5f1B519C9E76a2A6092265A74186e58".lower(): "clanker interface"
-    # Bạn có thể thêm nữa theo định dạng .lower()
+    "0x2112b8456ac07c15fa31ddf3bf713e77716ff3f9": "bnkr deployer",
+    "0xd9acd656a5f1b519c9e76a2a6092265a74186e58": "clanker interface"
 }
 
 def get_creation_txhash(contract_address: str) -> str:
@@ -119,20 +117,16 @@ def handle_message(update: Update, context: CallbackContext):
             update.message.reply_text("Failed to retrieve transaction data from BaseScan.")
             return
 
-        # Lấy from address
-        from_address = tx_data.get("from")
+        from_address = tx_data.get("from", "")
         if not from_address:
             update.message.reply_text("No 'from' address found in the transaction.")
             return
 
-        # Kiểm tra xem from_address có nằm trong ADDRESS_LABELS không
-        # So sánh ở dạng .lower() để nhất quán
-        from_label = ADDRESS_LABELS.get(from_address.lower())
-        if from_label:
-            # Nếu có label, thay thế from_address bằng label
-            display_from = f"{from_label} ({from_address})"
+        # Check label
+        label = ADDRESS_LABELS.get(from_address.lower())
+        if label:
+            display_from = f"{label} ({from_address})"
         else:
-            # Ngược lại, hiển thị địa chỉ như bình thường
             display_from = from_address
 
         input_data_raw = tx_data.get("input", "")
@@ -165,6 +159,7 @@ def handle_message(update: Update, context: CallbackContext):
         chain_id = token_config.get("originatingChainId")
         creator_reward_recipient = rewards_config.get("creatorRewardRecipient")
 
+        # Context
         context_raw = token_config.get("context")
         try:
             context_json = json.loads(context_raw)
@@ -172,24 +167,32 @@ def handle_message(update: Update, context: CallbackContext):
             logger.warning(f"⚠️ Failed to parse context JSON: {e}")
             context_json = {"context": context_raw}
 
+        # Format context: each key-value on a new line
         context_lines = []
         if isinstance(context_json, dict):
             for key, value in context_json.items():
                 if value and str(value).strip():
                     if key == "messageId":
                         context_lines.append(f"{key}: [Link]({value})")
+                    elif key == "id":
+                        # show "id" as backticks for click-to-copy
+                        context_lines.append(f"{key}: `{value}`")
                     else:
                         context_lines.append(f"{key}: {value}")
         else:
             context_lines.append(str(context_json))
         context_formatted = "\n".join(context_lines)
 
+        # Chain ID as backticks for click-to-copy
+        chain_id_str = f"`{chain_id}`" if chain_id else ""
+
+        # Build reply
         reply = (
             f"*Token Deployment Information:*\n\n"
             f"*From:* `{display_from}`\n"
             f"*Name:* `{name}`\n"
             f"*Symbol:* `{symbol}`\n"
-            f"*Chain ID:* `{chain_id}`\n"
+            f"*Chain ID:* {chain_id_str}\n"
             f"*Image:* [Link]({image})\n\n"
             f"*Context:*\n{context_formatted}\n\n"
             f"*Creator Reward Recipient:* `{creator_reward_recipient}`"
