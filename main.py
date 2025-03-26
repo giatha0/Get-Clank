@@ -7,9 +7,7 @@ from telegram import Update, ParseMode
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext
 
 # Cấu hình logging
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO
-)
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Lấy biến môi trường
@@ -35,8 +33,7 @@ def get_creation_txhash(contract_address: str) -> str:
         response = requests.get(url, params=params, timeout=10)
         response.raise_for_status()
         data = response.json()
-        # Giả sử kết quả trả về có cấu trúc:
-        # { "status": "1", "result": [ { "txHash": "..." } ] }
+        # Kết quả trả về giả định có cấu trúc: { "status": "1", "result": [ { "txHash": "..." } ] }
         results = data.get("result", [])
         if not results or not isinstance(results, list):
             logger.error("Không có kết quả trả về cho contract: %s", contract_address)
@@ -72,6 +69,20 @@ def get_transaction_data(txhash: str) -> dict:
         logger.error("Lỗi khi lấy thông tin giao dịch: %s", e)
         return None
 
+def decode_input(hex_str: str) -> str:
+    """
+    Nếu input data không phải là JSON rõ ràng (không bắt đầu bằng '{'), 
+    thì tiến hành giải mã từ chuỗi hex sang utf-8.
+    """
+    try:
+        if hex_str.startswith("0x"):
+            hex_str = hex_str[2:]
+        bytes_data = bytes.fromhex(hex_str)
+        return bytes_data.decode('utf-8').strip()
+    except Exception as e:
+        logger.error("Lỗi khi giải mã input data: %s", e)
+        return None
+
 def handle_message(update: Update, context: CallbackContext) -> None:
     message_text = update.message.text.strip()
     # Kiểm tra định dạng địa chỉ hợp đồng (0x + 40 ký tự hex)
@@ -93,15 +104,22 @@ def handle_message(update: Update, context: CallbackContext) -> None:
         update.message.reply_text("Không lấy được thông tin giao dịch từ BaseScan.")
         return
 
-    # Lấy input data từ giao dịch (thường là chuỗi hex, giả sử đã decode thành JSON)
-    input_hex = tx_data.get("input", "")
-    if not input_hex:
+    input_data_raw = tx_data.get("input", "")
+    if not input_data_raw:
         update.message.reply_text("Không tìm thấy input data trong giao dịch.")
         return
 
+    # Kiểm tra nếu input data bắt đầu bằng '{', coi như đã là JSON, ngược lại giải mã từ hex
     try:
-        # Nếu input data đã được decode thành chuỗi JSON
-        input_data = json.loads(input_hex)
+        if input_data_raw.strip().startswith("{"):
+            input_str = input_data_raw.strip()
+        else:
+            input_str = decode_input(input_data_raw)
+            if not input_str:
+                update.message.reply_text("Không thể giải mã input data từ giao dịch.")
+                return
+
+        input_data = json.loads(input_str)
     except Exception as e:
         logger.error("Lỗi khi parse input data: %s", e)
         update.message.reply_text("Lỗi khi parse input data từ giao dịch.")
