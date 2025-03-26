@@ -98,6 +98,7 @@ def handle_message(update: Update, context: CallbackContext) -> None:
         return
 
     input_data_raw = tx_data.get("input", "")
+    logger.info(f"input_data_raw: {input_data_raw}")
     if not input_data_raw:
         update.message.reply_text("Không tìm thấy input data trong giao dịch.")
         return
@@ -105,8 +106,10 @@ def handle_message(update: Update, context: CallbackContext) -> None:
     # Nếu chuỗi bắt đầu bằng { thì coi như JSON, nếu không thì decode
     if input_data_raw.strip().startswith("{"):
         input_str = input_data_raw.strip()
+        logger.info(f"Input đã ở dạng JSON: {input_str}")
     else:
         input_str = decode_input(input_data_raw)
+        logger.info(f"Input sau decode: {input_str}")
     if not input_str:
         update.message.reply_text("Không thể giải mã input data từ giao dịch.")
         return
