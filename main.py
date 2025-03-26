@@ -155,22 +155,29 @@ def handle_message(update: Update, context: CallbackContext):
         name = token_config.get("name")
         symbol = token_config.get("symbol")
         image = token_config.get("image")
-        metadata = token_config.get("metadata")
-        context_raw = token_config.get("context")
         chain_id = token_config.get("originatingChainId")
         creator_reward_recipient = rewards_config.get("creatorRewardRecipient")
 
-        try:
-            metadata_json = json.loads(metadata)
-        except Exception as e:
-            logger.warning(f"⚠️ Không parse được metadata JSON: {e}")
-            metadata_json = metadata
-
+        # Xử lý context: hiển thị từng item riêng dòng, chỉ hiển thị các mục có giá trị khác rỗng.
+        context_raw = token_config.get("context")
         try:
             context_json = json.loads(context_raw)
         except Exception as e:
             logger.warning(f"⚠️ Không parse được context JSON: {e}")
-            context_json = context_raw
+            context_json = {"context": context_raw}
+
+        context_lines = []
+        if isinstance(context_json, dict):
+            for key, value in context_json.items():
+                if value and str(value).strip():
+                    if key == "messageId":
+                        # Nếu messageId không rỗng, hiển thị dưới dạng hyperlink nếu có URL
+                        context_lines.append(f"{key}: [Link]({value})")
+                    else:
+                        context_lines.append(f"{key}: {value}")
+        else:
+            context_lines.append(str(context_json))
+        context_formatted = "\n".join(context_lines)
 
         reply = (
             f"📌 *Thông tin token deploy:*\n\n"
@@ -178,9 +185,7 @@ def handle_message(update: Update, context: CallbackContext):
             f"*Ký hiệu:* `{symbol}`\n"
             f"*Chain ID:* `{chain_id}`\n"
             f"*Image:* [Link]({image})\n\n"
-            f"*Metadata:*\n```json\n{json.dumps(metadata_json, ensure_ascii=False, indent=2)}\n```\n"
-            f"*Context:*\n```json\n{json.dumps(context_json, ensure_ascii=False, indent=2)}\n```\n"
-            f"*ID (click copy):* `{context_json.get('id', 'N/A')}`\n\n"
+            f"*Context:*\n{context_formatted}\n\n"
             f"*creatorRewardRecipient:* `{creator_reward_recipient}` (click copy)"
         )
 
@@ -192,7 +197,7 @@ def handle_message(update: Update, context: CallbackContext):
 def start_command(update: Update, context: CallbackContext):
     update.message.reply_text("Bot đã sẵn sàng. Gửi địa chỉ token contract để xử lý.")
 
-# Thêm handler vào dispatcher (không sử dụng decorator)
+# Thêm handler vào Dispatcher (không dùng decorator)
 dp.add_handler(CommandHandler("start", start_command))
 dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_message))
 
@@ -215,7 +220,6 @@ def index():
 def main():
     # Xóa webhook cũ
     bot.delete_webhook(drop_pending_updates=True)
-
     # Thiết lập webhook mới với domain công khai
     hook_url = f"{WEBHOOK_URL}/{TELEGRAM_BOT_TOKEN}"
     if not bot.set_webhook(url=hook_url):
