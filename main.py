@@ -179,7 +179,7 @@ def main() -> None:
     updater.bot.delete_webhook(drop_pending_updates=True)
 
     # Cấu hình webhook
-    port = 8483  # Port được Railway cung cấp
+    port = 8443  # Port được Railway cung cấp
     # Lắng nghe trên tất cả các interface (0.0.0.0) trên port 8080
     updater.start_webhook(listen="0.0.0.0",
                           port=port,
