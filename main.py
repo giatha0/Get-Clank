@@ -16,13 +16,13 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
-API_BASESCAN = os.environ.get("API_BASESCAN")
+API_BASESCAN = os.environ.get("API_BASESCAN")  # e.g. "https://api.basescan.org"
 BASESCAN_API_KEY = os.environ.get("BASESCAN_API_KEY")
-WEBHOOK_URL = os.environ.get("WEBHOOK_URL")
-WEB3_PROVIDER_URL = os.environ.get("WEB3_PROVIDER_URL")
+WEBHOOK_URL = os.environ.get("WEBHOOK_URL")        # e.g. "https://get-clank-production.up.railway.app"
+WEB3_PROVIDER_URL = os.environ.get("WEB3_PROVIDER_URL")  # e.g. "https://mainnet.infura.io/v3/YOUR_INFURA_PROJECT_ID"
 
 if not all([TELEGRAM_BOT_TOKEN, API_BASESCAN, BASESCAN_API_KEY, WEBHOOK_URL, WEB3_PROVIDER_URL]):
-    logger.error("❌ Missing environment variables.")
+    logger.error("❌ Missing environment variables. Please configure TELEGRAM_BOT_TOKEN, API_BASESCAN, BASESCAN_API_KEY, WEBHOOK_URL, WEB3_PROVIDER_URL")
     exit(1)
 
 bot = Bot(token=TELEGRAM_BOT_TOKEN)
@@ -40,6 +40,7 @@ except Exception as e:
 
 app = Flask(__name__)
 
+# Dictionary for mapping addresses to labels
 ADDRESS_LABELS = {
     "0x2112b8456ac07c15fa31ddf3bf713e77716ff3f9": "bnkr deployer",
     "0xd9acd656a5f1b519c9e76a2a6092265a74186e58": "clanker interface"
@@ -88,7 +89,7 @@ def get_transaction_data(txhash: str) -> dict:
 
 def decode_input_with_web3(input_hex: str):
     try:
-        logger.info("🔓 Decoding input with Web3...")
+        logger.info("🔓 Decoding input data with Web3...")
         func_obj, func_args = contract.decode_function_input(input_hex)
         logger.info(f"✅ Decoded function: {func_obj.fn_name}")
         return {"function": func_obj.fn_name, "args": func_args}
@@ -102,11 +103,10 @@ def handle_message(update: Update, context: CallbackContext):
         logger.info(f"📨 Received message: {msg_text}")
 
         if not re.match(r"^0x[a-fA-F0-9]{40}$", msg_text):
-            logger.warning("⚠️ Not a valid contract address.")
+            logger.warning("⚠️ Message is not a valid contract address.")
             return
 
         update.message.reply_text(f"Processing contract: `{msg_text}`", parse_mode=ParseMode.MARKDOWN)
-
         txhash = get_creation_txhash(msg_text)
         if not txhash:
             update.message.reply_text("Could not find txhash from BaseScan.")
@@ -122,7 +122,7 @@ def handle_message(update: Update, context: CallbackContext):
             update.message.reply_text("No 'from' address found in the transaction.")
             return
 
-        # Check label
+        # Check if from_address has a label
         label = ADDRESS_LABELS.get(from_address.lower())
         if label:
             display_from = f"{label} ({from_address})"
@@ -135,7 +135,6 @@ def handle_message(update: Update, context: CallbackContext):
             return
 
         logger.info(f"🔍 Input data raw (first 20 chars): {input_data_raw[:20]}... (length: {len(input_data_raw)})")
-
         decoded = decode_input_with_web3(input_data_raw)
         if not decoded:
             update.message.reply_text("Error decoding input data.")
@@ -155,11 +154,14 @@ def handle_message(update: Update, context: CallbackContext):
 
         name = token_config.get("name")
         symbol = token_config.get("symbol")
+        # Add '$' prefix for symbol if not already present
+        if symbol and not symbol.startswith("$"):
+            symbol = f"${symbol}"
         image = token_config.get("image")
-        chain_id = token_config.get("originatingChainId")
+        # chain_id is removed from output as per update requirement
         creator_reward_recipient = rewards_config.get("creatorRewardRecipient")
 
-        # Context
+        # Process context: each key-value on a new line; if key is "messageId", show as hyperlink; skip "id" line from context display.
         context_raw = token_config.get("context")
         try:
             context_json = json.loads(context_raw)
@@ -167,7 +169,6 @@ def handle_message(update: Update, context: CallbackContext):
             logger.warning(f"⚠️ Failed to parse context JSON: {e}")
             context_json = {"context": context_raw}
 
-        # Format context: each key-value on a new line
         context_lines = []
         if isinstance(context_json, dict):
             for key, value in context_json.items():
@@ -175,24 +176,19 @@ def handle_message(update: Update, context: CallbackContext):
                     if key == "messageId":
                         context_lines.append(f"{key}: [Link]({value})")
                     elif key == "id":
-                        # show "id" as backticks for click-to-copy
-                        context_lines.append(f"{key}: `{value}`")
+                        # Skip displaying 'id' in context
+                        continue
                     else:
                         context_lines.append(f"{key}: {value}")
         else:
             context_lines.append(str(context_json))
         context_formatted = "\n".join(context_lines)
 
-        # Chain ID as backticks for click-to-copy
-        chain_id_str = f"`{chain_id}`" if chain_id else ""
-
-        # Build reply
         reply = (
             f"*Token Deployment Information:*\n\n"
             f"*From:* `{display_from}`\n"
             f"*Name:* `{name}`\n"
             f"*Symbol:* `{symbol}`\n"
-            f"*Chain ID:* {chain_id_str}\n"
             f"*Image:* [Link]({image})\n\n"
             f"*Context:*\n{context_formatted}\n\n"
             f"*Creator Reward Recipient:* `{creator_reward_recipient}`"
